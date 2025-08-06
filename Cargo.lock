@@ -130,6 +130,7 @@ name = "ims2tif"
 version = "0.1.0"
 dependencies = [
  "hdf5",
+ "ndarray",
  "tiff",
 ]
 

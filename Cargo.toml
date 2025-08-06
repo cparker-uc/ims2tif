@@ -5,4 +5,5 @@ edition = "2024"
 
 [dependencies]
 hdf5 = { path = "hdf5-rust/hdf5" }
+ndarray = "0.15"
 tiff = "0.10.0"
