@@ -1,13 +1,11 @@
 use hdf5::{File, Result};
-// use ndarray::{ArrayBase, OwnedRepr, Dim};
 use ndarray::{Array3, s};
 use std::error::Error;
 use std::fs;
-use std::io::{self, Write};
+// use std::io::{self, Write};
 use std::path::Path;
-use tiff::ColorType::Gray;
-use tiff::encoder::{ImageEncoder, TiffEncoder, colortype::Gray8};
-use tiff::tags::CompressionMethod;
+use tiff::encoder::{TiffEncoder, TiffKindBig, colortype::Gray8};
+// use tiff::tags::CompressionMethod;
 
 #[derive(Debug)]
 pub struct Config {
@@ -129,31 +127,32 @@ pub fn convert(conf: Config) -> Result<(), Box<dyn Error>> {
             // Create a tiff file for this slicer
             let out_file = format!("{filename_root}_Res{res}_Chan{chan}.tif");
             let out_path_ = out_path.join(out_file);
-            println!("{:?}", out_path_);
-            let mut file = fs::File::create(out_path_)?;
+            let file = fs::File::create(out_path_)?;
+            let mut tiff_file = TiffEncoder::new_big(file).unwrap();
 
             // Instantiate a slicer and loop through
             let slicer = ImageSlicer::new(32, res, chan, &conf);
 
-            for slice in slicer {
-                println!("{:?}", slice);
-                io::stdout().flush().unwrap();
+            for (idx, slice) in slicer.enumerate() {
+                println!("ResolutionLevel {res}, Channel {chan}, Slice number {idx}");
+                // io::stdout().flush().unwrap();
                 // Write to tif file
-                write_tiff(slice, &mut file)?;
+                write_tiff(slice, &mut tiff_file)?;
             }
         }
     }
     Ok(())
 }
 
-fn write_tiff(slice: Array3<u8>, file: &mut fs::File) -> Result<(), Box<dyn Error>> {
-    let mut tiff_file = TiffEncoder::new(file).unwrap();
+fn write_tiff(
+    slice: Array3<u8>,
+    tiff_file: &mut TiffEncoder<fs::File, TiffKindBig>,
+) -> Result<(), Box<dyn Error>> {
     let slice_size = slice.shape();
     let (nx, ny, nz) = (slice_size[0], slice_size[1], slice_size[2]);
     for z_ in 0..nz {
         let image = tiff_file.new_image::<Gray8>(nx as u32, ny as u32)?;
-        let frame = slice.slice(s![.., .., z_]);
-        println!("{:?}", frame);
+        let frame = slice.slice(s![.., .., z_]).to_owned();
         let flattened_data = frame
             .as_slice()
             .expect("Had an issue while flattening the array to write a frame");
