@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fs;
 // use std::io::{self, Write};
 use std::path::Path;
-use tiff::encoder::{TiffEncoder, TiffKindBig, colortype::Gray8};
+use tiff::encoder::{TiffEncoder, TiffKindBig, colortype::Gray16};
 // use tiff::tags::CompressionMethod;
 
 #[derive(Debug)]
@@ -74,7 +74,7 @@ impl<'a> ImageSlicer<'a> {
     }
 
     /// Read the next slice
-    fn read_h5(&self) -> Result<Array3<u8>, Box<dyn Error>> {
+    fn read_h5(&self) -> Result<Array3<u16>, Box<dyn Error>> {
         let h5f = File::open(&self.config.file_name)?;
         let data = h5f.dataset(&format!(
             "DataSet/ResolutionLevel {}/TimePoint 0/Channel {}/Data",
@@ -82,25 +82,25 @@ impl<'a> ImageSlicer<'a> {
         ))?;
         // Check the size of the dataset
         let ds_size = data.shape();
-        let (nx, ny, nz) = (ds_size[0], ds_size[1], ds_size[2]);
+        let (nz, ny, nx) = (ds_size[0], ds_size[1], ds_size[2]);
         // Check whether we are closer to nz than slice_size indices
         let dz = self.slice_size.min(nz - self.current);
         let dz = self.current + dz;
 
-        let slice: Array3<u8> =
-            data.read_slice::<u8, _, ndarray::Dim<[usize; 3]>>((0..nx, 0..ny, self.current..dz))?;
+        let slice: Array3<u16> =
+            data.read_slice::<u16, _, ndarray::Dim<[usize; 3]>>((self.current..dz, 0..ny, 0..nx))?;
 
         Ok(slice)
     }
 }
 
 impl<'a> Iterator for ImageSlicer<'a> {
-    type Item = Array3<u8>;
+    type Item = Array3<u16>;
 
     fn next(&mut self) -> Option<Self::Item> {
         // Read the next slice, and return None to signal the iterator has run its course if we
         // error while reading
-        let slice: Array3<u8> = match ImageSlicer::read_h5(&self) {
+        let slice: Array3<u16> = match ImageSlicer::read_h5(&self) {
             Ok(arr) => arr,
             Err(_) => return None,
         };
@@ -145,18 +145,16 @@ pub fn convert(conf: Config) -> Result<(), Box<dyn Error>> {
 }
 
 fn write_tiff(
-    slice: Array3<u8>,
+    slice: Array3<u16>,
     tiff_file: &mut TiffEncoder<fs::File, TiffKindBig>,
 ) -> Result<(), Box<dyn Error>> {
     let slice_size = slice.shape();
-    let (nx, ny, nz) = (slice_size[0], slice_size[1], slice_size[2]);
+    let (nz, ny, nx) = (slice_size[0], slice_size[1], slice_size[2]);
     for z_ in 0..nz {
-        let image = tiff_file.new_image::<Gray8>(nx as u32, ny as u32)?;
-        let frame = slice.slice(s![.., .., z_]).to_owned();
-        let flattened_data = frame
-            .as_slice()
+        let frame = slice.slice(s![.., .., z_]).reversed_axes().to_owned();
+        let flattened_data = frame.as_slice_memory_order()
             .expect("Had an issue while flattening the array to write a frame");
-        image.write_data(flattened_data)?;
+        tiff_file.write_image::<Gray16>(ny as u32, nx as u32, flattened_data)?;
     }
     Ok(())
 }
