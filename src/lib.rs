@@ -1,6 +1,7 @@
 use hdf5::{File, Result};
 use ndarray::{Array3, s};
 use std::error::Error;
+use std::io::{Error as IoError, ErrorKind};
 use std::fs;
 // use std::io::{self, Write};
 use std::path::Path;
@@ -89,6 +90,8 @@ impl<'a> ImageSlicer<'a> {
 
         let slice: Array3<u16> =
             data.read_slice::<u16, _, ndarray::Dim<[usize; 3]>>((self.current..dz, 0..ny, 0..nx))?;
+        // Interestingly, this wasn't an issue that needed handling on Linux, but on windows we need to call an empty slice an error
+        if slice.is_empty() == true { return Err(IoError::new(ErrorKind::UnexpectedEof, "empty slice").into()) }
 
         Ok(slice)
     }
@@ -100,6 +103,7 @@ impl<'a> Iterator for ImageSlicer<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         // Read the next slice, and return None to signal the iterator has run its course if we
         // error while reading
+        // if self.current >= 
         let slice: Array3<u16> = match ImageSlicer::read_h5(&self) {
             Ok(arr) => arr,
             Err(_) => return None,
@@ -122,8 +126,8 @@ pub fn convert(conf: Config) -> Result<(), Box<dyn Error>> {
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("Couldn't get filename root from the ims file.");
-    for res in 0..7 {
-        for chan in 0..2 {
+    for res in 0..conf.res_levels {
+        for chan in 0..conf.channels {
             // Create a tiff file for this slicer
             let out_file = format!("{filename_root}_Res{res}_Chan{chan}.tif");
             let out_path_ = out_path.join(out_file);
@@ -149,12 +153,15 @@ fn write_tiff(
     tiff_file: &mut TiffEncoder<fs::File, TiffKindBig>,
 ) -> Result<(), Box<dyn Error>> {
     let slice_size = slice.shape();
+    // Have to reverse dims zyx because it seems Imaris does things backwards
     let (nz, ny, nx) = (slice_size[0], slice_size[1], slice_size[2]);
     for z_ in 0..nz {
-        let frame = slice.slice(s![.., .., z_]).reversed_axes().to_owned();
+        let frame = slice.slice(s![z_, .., ..,]).reversed_axes().to_owned();
+        // If we just do as_slice, it panics because reversed_axes stores it
+        // in Fortran order (column major) which is backwards
         let flattened_data = frame.as_slice_memory_order()
             .expect("Had an issue while flattening the array to write a frame");
-        tiff_file.write_image::<Gray16>(ny as u32, nx as u32, flattened_data)?;
+        tiff_file.write_image::<Gray16>(nx as u32, ny as u32, flattened_data)?;
     }
     Ok(())
 }
