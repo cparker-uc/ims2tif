@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+eframe = "0.32.0"
 egui = "0.32.0"
+egui_extras = { version = "*", features = ["all_loaders"] }
+image = { version = "*", features = ["png", "jpeg"] }
 hdf5 = { path = "hdf5-rust/hdf5" }
 ndarray = "0.15"
 tiff = "0.10.0"
